@@ -35,15 +35,15 @@ static void LogMessage(const char* format, ...) {
 
 // ==================== 矩形覆盖层窗口 ====================
 
-// 矩形数据结构
-struct Rectangle {
+// 矩形数据结构 (重命名以避免与 GDI+ Rectangle 冲突)
+struct OverlayRectangle {
     float x, y, width, height;
 };
 
 // 覆盖层窗口数据
 struct OverlayWindowData {
     HWND hwnd;
-    std::vector<Rectangle> rectangles;
+    std::vector<OverlayRectangle> rectangles;
     float lineWidth;
     float red, green, blue, alpha;
     ULONG_PTR gdiplusToken;
@@ -457,7 +457,7 @@ void wv_player_update_rectangles(void* playerHandle, const float* rects, int rec
     wrapper->overlayData->rectangles.clear();
     for (int i = 0; i < rectCount; i++) {
         int offset = i * 4;
-        Rectangle rect;
+        OverlayRectangle rect;
         rect.x = rects[offset];
         rect.y = rects[offset + 1];
         rect.width = rects[offset + 2];
