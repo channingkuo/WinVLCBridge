@@ -37,4 +37,4 @@ cmake_install.cmake
 # IDE
 .vscode/
 .idea/
-
+.DS_Store
