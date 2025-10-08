@@ -1,0 +1,40 @@
+# 编译输出
+build/
+out/
+bin/
+lib/
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+!CMakeLists.txt
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# 临时文件
+*.obj
+*.o
+*.log
+*.tmp
+
+# VLC SDK（如果很大可以忽略，但保留结构说明）
+# vlc-3.0.21/
+
+# IDE
+.vscode/
+.idea/
+

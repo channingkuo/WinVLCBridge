@@ -1,0 +1,134 @@
+name: Build WinVLCBridge DLL
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'WinVLCBridge/**'
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout 代码
+      uses: actions/checkout@v3
+      
+    - name: 设置 MSBuild
+      uses: microsoft/setup-msbuild@v1.1
+      
+    - name: 下载 VLC SDK
+      run: |
+        Write-Host "=========================================="
+        Write-Host "VLC SDK 自动设置脚本"
+        Write-Host "=========================================="
+        Write-Host ""
+        
+        $VLC_VERSION = "3.0.20"
+        $NUGET_URL = "https://www.nuget.org/api/v2/package/VideoLAN.LibVLC.Windows/$VLC_VERSION"
+        $TARGET_DIR = "WinVLCBridge/vlc-3.0.21"
+        
+        # 检查是否已存在
+        if (Test-Path "$TARGET_DIR/sdk") {
+          Write-Host "VLC SDK 已存在，跳过下载"
+          exit 0
+        }
+        
+        Write-Host "步骤 1: 下载 VLC SDK (NuGet 包)..."
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $NUGET_URL -OutFile "libvlc.zip"
+        
+        Write-Host ""
+        Write-Host "步骤 2: 解压..."
+        Expand-Archive -Path "libvlc.zip" -DestinationPath "libvlc-nuget" -Force
+        
+        Write-Host ""
+        Write-Host "步骤 3: 创建目录结构..."
+        New-Item -ItemType Directory -Force -Path "$TARGET_DIR/sdk/include" | Out-Null
+        New-Item -ItemType Directory -Force -Path "$TARGET_DIR/sdk/lib" | Out-Null
+        
+        Write-Host ""
+        Write-Host "步骤 4: 复制头文件..."
+        Copy-Item -Recurse -Force "libvlc-nuget/build/x64/include/*" "$TARGET_DIR/sdk/include/"
+        
+        Write-Host ""
+        Write-Host "步骤 5: 复制库文件..."
+        Copy-Item -Force "libvlc-nuget/build/x64/libvlc.lib" "$TARGET_DIR/sdk/lib/"
+        Copy-Item -Force "libvlc-nuget/build/x64/libvlccore.lib" "$TARGET_DIR/sdk/lib/"
+        
+        Write-Host ""
+        Write-Host "步骤 6: 复制 DLL 和插件..."
+        Copy-Item -Force "libvlc-nuget/build/x64/*.dll" "$TARGET_DIR/"
+        Copy-Item -Recurse -Force "libvlc-nuget/build/x64/plugins" "$TARGET_DIR/"
+        
+        Write-Host ""
+        Write-Host "步骤 7: 清理临时文件..."
+        Remove-Item -Recurse -Force "libvlc-nuget", "libvlc.zip"
+        
+        Write-Host ""
+        Write-Host "=========================================="
+        Write-Host "✅ VLC SDK 设置完成！"
+        Write-Host "=========================================="
+        Write-Host ""
+        Write-Host "目录结构："
+        Write-Host "$TARGET_DIR/"
+        Write-Host "├── sdk/"
+        Write-Host "│   ├── include/vlc/"
+        Write-Host "│   │   └── vlc.h ✅"
+        Write-Host "│   └── lib/"
+        Write-Host "│       ├── libvlc.lib ✅"
+        Write-Host "│       └── libvlccore.lib ✅"
+        Write-Host "├── libvlc.dll ✅"
+        Write-Host "├── libvlccore.dll ✅"
+        Write-Host "└── plugins/ ✅"
+        Write-Host ""
+      shell: powershell
+      
+    - name: 配置 CMake
+      run: |
+        cd WinVLCBridge
+        mkdir build
+        cd build
+        cmake .. -G "Visual Studio 17 2022" -A x64
+        
+    - name: 编译 Release 版本
+      run: |
+        cd WinVLCBridge/build
+        cmake --build . --config Release --verbose
+        
+    - name: 验证编译输出
+      run: |
+        if (Test-Path "WinVLCBridge/build/bin/Release/WinVLCBridge.dll") {
+          Write-Host "✅ WinVLCBridge.dll 编译成功"
+          Get-ChildItem "WinVLCBridge/build/bin/Release" -Recurse | Select-Object Name, Length
+        } else {
+          Write-Error "❌ 编译失败：找不到 WinVLCBridge.dll"
+          exit 1
+        }
+      shell: powershell
+        
+    - name: 上传编译产物
+      uses: actions/upload-artifact@v3
+      with:
+        name: WinVLCBridge-Release-x64
+        path: |
+          WinVLCBridge/build/bin/Release/WinVLCBridge.dll
+          WinVLCBridge/build/bin/Release/libvlc.dll
+          WinVLCBridge/build/bin/Release/libvlccore.dll
+          WinVLCBridge/build/bin/Release/plugins/
+        retention-days: 30
+        
+    - name: 创建 Release（仅在打 tag 时）
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          WinVLCBridge/build/bin/Release/WinVLCBridge.dll
+          WinVLCBridge/build/bin/Release/libvlc.dll
+          WinVLCBridge/build/bin/Release/libvlccore.dll
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
