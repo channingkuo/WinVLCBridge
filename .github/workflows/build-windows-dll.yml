@@ -22,68 +22,88 @@ jobs:
       
     - name: 下载 VLC SDK
       run: |
-        Write-Host "=========================================="
-        Write-Host "VLC SDK 自动设置脚本"
-        Write-Host "=========================================="
-        Write-Host ""
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $ProgressPreference = 'SilentlyContinue'
         
         $VLC_VERSION = "3.0.20"
         $NUGET_URL = "https://www.nuget.org/api/v2/package/VideoLAN.LibVLC.Windows/$VLC_VERSION"
         $TARGET_DIR = "WinVLCBridge/vlc-3.0.21"
         
-        # 检查是否已存在
+        Write-Host "=========================================="
+        Write-Host "VLC SDK Setup Script"
+        Write-Host "=========================================="
+        Write-Host ""
+        
+        # Check if SDK already exists
         if (Test-Path "$TARGET_DIR/sdk") {
-          Write-Host "VLC SDK 已存在，跳过下载"
+          Write-Host "VLC SDK already exists, skipping download"
           exit 0
         }
         
-        Write-Host "步骤 1: 下载 VLC SDK (NuGet 包)..."
-        $ProgressPreference = 'SilentlyContinue'
+        Write-Host "Step 1: Downloading VLC SDK (NuGet package)..."
         Invoke-WebRequest -Uri $NUGET_URL -OutFile "libvlc.zip"
         
         Write-Host ""
-        Write-Host "步骤 2: 解压..."
+        Write-Host "Step 2: Extracting..."
         Expand-Archive -Path "libvlc.zip" -DestinationPath "libvlc-nuget" -Force
         
         Write-Host ""
-        Write-Host "步骤 3: 创建目录结构..."
+        Write-Host "Step 3: Checking NuGet package structure..."
+        Get-ChildItem -Path "libvlc-nuget" -Recurse -Depth 2 | Select-Object FullName | Format-Table -AutoSize
+        
+        Write-Host ""
+        Write-Host "Step 4: Creating directory structure..."
         New-Item -ItemType Directory -Force -Path "$TARGET_DIR/sdk/include" | Out-Null
         New-Item -ItemType Directory -Force -Path "$TARGET_DIR/sdk/lib" | Out-Null
         
         Write-Host ""
-        Write-Host "步骤 4: 复制头文件..."
-        Copy-Item -Recurse -Force "libvlc-nuget/build/x64/include/*" "$TARGET_DIR/sdk/include/"
+        Write-Host "Step 5: Copying header files..."
+        if (Test-Path "libvlc-nuget/build/native/include") {
+          Copy-Item -Recurse -Force "libvlc-nuget/build/native/include/*" "$TARGET_DIR/sdk/include/"
+        } elseif (Test-Path "libvlc-nuget/build/x64/include") {
+          Copy-Item -Recurse -Force "libvlc-nuget/build/x64/include/*" "$TARGET_DIR/sdk/include/"
+        } else {
+          Write-Error "Cannot find include directory in NuGet package"
+          exit 1
+        }
         
         Write-Host ""
-        Write-Host "步骤 5: 复制库文件..."
-        Copy-Item -Force "libvlc-nuget/build/x64/libvlc.lib" "$TARGET_DIR/sdk/lib/"
-        Copy-Item -Force "libvlc-nuget/build/x64/libvlccore.lib" "$TARGET_DIR/sdk/lib/"
+        Write-Host "Step 6: Copying library files..."
+        $libPath = ""
+        if (Test-Path "libvlc-nuget/build/x64") {
+          $libPath = "libvlc-nuget/build/x64"
+        } elseif (Test-Path "libvlc-nuget/build/win-x64") {
+          $libPath = "libvlc-nuget/build/win-x64"
+        } else {
+          Write-Error "Cannot find x64 build directory in NuGet package"
+          exit 1
+        }
+        
+        Copy-Item -Force "$libPath/libvlc.lib" "$TARGET_DIR/sdk/lib/" -ErrorAction SilentlyContinue
+        Copy-Item -Force "$libPath/libvlccore.lib" "$TARGET_DIR/sdk/lib/" -ErrorAction SilentlyContinue
         
         Write-Host ""
-        Write-Host "步骤 6: 复制 DLL 和插件..."
-        Copy-Item -Force "libvlc-nuget/build/x64/*.dll" "$TARGET_DIR/"
-        Copy-Item -Recurse -Force "libvlc-nuget/build/x64/plugins" "$TARGET_DIR/"
+        Write-Host "Step 7: Copying DLL and plugins..."
+        Copy-Item -Force "$libPath/*.dll" "$TARGET_DIR/" -ErrorAction SilentlyContinue
+        if (Test-Path "$libPath/plugins") {
+          Copy-Item -Recurse -Force "$libPath/plugins" "$TARGET_DIR/"
+        }
         
         Write-Host ""
-        Write-Host "步骤 7: 清理临时文件..."
+        Write-Host "Step 8: Cleaning up temporary files..."
         Remove-Item -Recurse -Force "libvlc-nuget", "libvlc.zip"
         
         Write-Host ""
         Write-Host "=========================================="
-        Write-Host "✅ VLC SDK 设置完成！"
+        Write-Host "VLC SDK setup completed successfully!"
         Write-Host "=========================================="
         Write-Host ""
-        Write-Host "目录结构："
-        Write-Host "$TARGET_DIR/"
-        Write-Host "├── sdk/"
-        Write-Host "│   ├── include/vlc/"
-        Write-Host "│   │   └── vlc.h ✅"
-        Write-Host "│   └── lib/"
-        Write-Host "│       ├── libvlc.lib ✅"
-        Write-Host "│       └── libvlccore.lib ✅"
-        Write-Host "├── libvlc.dll ✅"
-        Write-Host "├── libvlccore.dll ✅"
-        Write-Host "└── plugins/ ✅"
+        Write-Host "Verifying SDK structure..."
+        if (Test-Path "$TARGET_DIR/sdk/include") { Write-Host "  [OK] Include directory" }
+        if (Test-Path "$TARGET_DIR/sdk/lib") { Write-Host "  [OK] Lib directory" }
+        if (Test-Path "$TARGET_DIR/libvlc.dll") { Write-Host "  [OK] libvlc.dll" }
+        if (Test-Path "$TARGET_DIR/libvlccore.dll") { Write-Host "  [OK] libvlccore.dll" }
+        if (Test-Path "$TARGET_DIR/plugins") { Write-Host "  [OK] Plugins directory" }
         Write-Host ""
       shell: powershell
       
