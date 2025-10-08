@@ -107,17 +107,50 @@ jobs:
         Write-Host ""
       shell: powershell
       
-    - name: 配置 CMake
+    - name: 检查项目结构
       run: |
-        cd WinVLCBridge
-        mkdir build
-        cd build
+        Write-Host "Current directory:"
+        Get-Location
+        Write-Host ""
+        Write-Host "Directory structure:"
+        Get-ChildItem -Recurse -Depth 2 | Where-Object {$_.Name -like "CMakeLists.txt" -or $_.Name -like "*.cpp"} | Select-Object FullName
+        Write-Host ""
+        Write-Host "Checking WinVLCBridge directory:"
+        if (Test-Path "WinVLCBridge") {
+          Write-Host "  [OK] WinVLCBridge directory exists"
+          Get-ChildItem "WinVLCBridge" | Select-Object Name
+        } else {
+          Write-Error "  [ERROR] WinVLCBridge directory not found"
+        }
+      shell: powershell
+      
+    - name: 配置 CMake
+      working-directory: WinVLCBridge
+      run: |
+        Write-Host "Current directory:"
+        Get-Location
+        Write-Host ""
+        Write-Host "Checking for CMakeLists.txt:"
+        if (Test-Path "CMakeLists.txt") {
+          Write-Host "  [OK] CMakeLists.txt found"
+        } else {
+          Write-Error "  [ERROR] CMakeLists.txt not found"
+          exit 1
+        }
+        Write-Host ""
+        Write-Host "Creating build directory..."
+        New-Item -ItemType Directory -Force -Path "build" | Out-Null
+        Set-Location build
+        Write-Host "Configuring CMake..."
         cmake .. -G "Visual Studio 17 2022" -A x64
+      shell: powershell
         
     - name: 编译 Release 版本
+      working-directory: WinVLCBridge/build
       run: |
-        cd WinVLCBridge/build
+        Write-Host "Building Release version..."
         cmake --build . --config Release --verbose
+      shell: powershell
         
     - name: 验证编译输出
       run: |
