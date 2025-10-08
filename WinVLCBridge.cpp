@@ -7,6 +7,18 @@
 
 #include "WinVLCBridge.h"
 #include <windows.h>
+
+// 在包含 VLC 头文件之前，定义缺失的类型
+// 这是 VLC SDK 3.0.20 的一个已知问题的解决方案
+#ifndef _SSIZE_T_DEFINED
+#define _SSIZE_T_DEFINED
+#ifdef _WIN64
+typedef __int64 ssize_t;
+#else
+typedef int ssize_t;
+#endif
+#endif
+
 #include <vlc/vlc.h>
 #include <gdiplus.h>
 #include <vector>
