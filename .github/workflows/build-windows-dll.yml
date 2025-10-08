@@ -27,16 +27,32 @@ jobs:
         
         $VLC_VERSION = "3.0.20"
         $NUGET_URL = "https://www.nuget.org/api/v2/package/VideoLAN.LibVLC.Windows/$VLC_VERSION"
-        $TARGET_DIR = "WinVLCBridge/vlc-3.0.21"
         
         Write-Host "=========================================="
         Write-Host "VLC SDK Setup Script"
         Write-Host "=========================================="
         Write-Host ""
         
+        # Determine the correct target directory based on repository structure
+        if (Test-Path "WinVLCBridge/CMakeLists.txt") {
+          # Repository contains WinVLCBridge as a subdirectory
+          $TARGET_DIR = "WinVLCBridge/vlc-3.0.21"
+          Write-Host "Repository structure: WinVLCBridge is a subdirectory"
+        } elseif (Test-Path "CMakeLists.txt") {
+          # Repository root is WinVLCBridge itself
+          $TARGET_DIR = "vlc-3.0.21"
+          Write-Host "Repository structure: Root is WinVLCBridge"
+        } else {
+          Write-Error "Cannot find CMakeLists.txt to determine repository structure"
+          exit 1
+        }
+        
+        Write-Host "Target directory for VLC SDK: $TARGET_DIR"
+        Write-Host ""
+        
         # Check if SDK already exists
         if (Test-Path "$TARGET_DIR/sdk") {
-          Write-Host "VLC SDK already exists, skipping download"
+          Write-Host "VLC SDK already exists at $TARGET_DIR, skipping download"
           exit 0
         }
         
