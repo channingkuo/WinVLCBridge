@@ -109,56 +109,113 @@ jobs:
       
     - name: 检查项目结构
       run: |
+        Write-Host "=========================================="
+        Write-Host "Checking Repository Structure"
+        Write-Host "=========================================="
+        Write-Host ""
         Write-Host "Current directory:"
         Get-Location
         Write-Host ""
-        Write-Host "Directory structure:"
-        Get-ChildItem -Recurse -Depth 2 | Where-Object {$_.Name -like "CMakeLists.txt" -or $_.Name -like "*.cpp"} | Select-Object FullName
+        Write-Host "Root directory contents:"
+        Get-ChildItem | Select-Object Name, Mode
         Write-Host ""
-        Write-Host "Checking WinVLCBridge directory:"
-        if (Test-Path "WinVLCBridge") {
-          Write-Host "  [OK] WinVLCBridge directory exists"
-          Get-ChildItem "WinVLCBridge" | Select-Object Name
-        } else {
-          Write-Error "  [ERROR] WinVLCBridge directory not found"
-        }
+        Write-Host "Looking for CMakeLists.txt and source files:"
+        Get-ChildItem -Recurse -Depth 2 -Include "CMakeLists.txt","*.cpp","*.h" | Select-Object FullName | Format-Table -AutoSize
+        Write-Host ""
       shell: powershell
       
     - name: 配置 CMake
-      working-directory: WinVLCBridge
       run: |
-        Write-Host "Current directory:"
-        Get-Location
+        Write-Host "=========================================="
+        Write-Host "Configuring CMake"
+        Write-Host "=========================================="
         Write-Host ""
-        Write-Host "Checking for CMakeLists.txt:"
-        if (Test-Path "CMakeLists.txt") {
-          Write-Host "  [OK] CMakeLists.txt found"
+        
+        # Check if we need to go into WinVLCBridge subdirectory
+        if (Test-Path "WinVLCBridge/CMakeLists.txt") {
+          Write-Host "Found CMakeLists.txt in WinVLCBridge subdirectory"
+          Set-Location WinVLCBridge
+        } elseif (Test-Path "CMakeLists.txt") {
+          Write-Host "Found CMakeLists.txt in root directory"
         } else {
-          Write-Error "  [ERROR] CMakeLists.txt not found"
+          Write-Error "Cannot find CMakeLists.txt"
           exit 1
         }
+        
+        Write-Host "Current working directory:"
+        Get-Location
         Write-Host ""
+        
         Write-Host "Creating build directory..."
         New-Item -ItemType Directory -Force -Path "build" | Out-Null
+        
+        Write-Host "Entering build directory..."
         Set-Location build
-        Write-Host "Configuring CMake..."
+        
+        Write-Host "Running CMake configuration..."
         cmake .. -G "Visual Studio 17 2022" -A x64
       shell: powershell
         
     - name: 编译 Release 版本
-      working-directory: WinVLCBridge/build
       run: |
-        Write-Host "Building Release version..."
+        Write-Host "=========================================="
+        Write-Host "Building Release Version"
+        Write-Host "=========================================="
+        Write-Host ""
+        
+        # Find build directory
+        if (Test-Path "WinVLCBridge/build") {
+          Set-Location "WinVLCBridge/build"
+        } elseif (Test-Path "build") {
+          Set-Location "build"
+        } else {
+          Write-Error "Cannot find build directory"
+          exit 1
+        }
+        
+        Write-Host "Building from directory:"
+        Get-Location
+        Write-Host ""
+        
         cmake --build . --config Release --verbose
       shell: powershell
         
     - name: 验证编译输出
       run: |
-        if (Test-Path "WinVLCBridge/build/bin/Release/WinVLCBridge.dll") {
-          Write-Host "✅ WinVLCBridge.dll 编译成功"
-          Get-ChildItem "WinVLCBridge/build/bin/Release" -Recurse | Select-Object Name, Length
-        } else {
-          Write-Error "❌ 编译失败：找不到 WinVLCBridge.dll"
+        Write-Host "=========================================="
+        Write-Host "Verifying Build Output"
+        Write-Host "=========================================="
+        Write-Host ""
+        
+        # Find output DLL
+        $dllPaths = @(
+          "WinVLCBridge/build/bin/Release/WinVLCBridge.dll",
+          "build/bin/Release/WinVLCBridge.dll",
+          "WinVLCBridge/build/Release/WinVLCBridge.dll",
+          "build/Release/WinVLCBridge.dll"
+        )
+        
+        $found = $false
+        foreach ($path in $dllPaths) {
+          if (Test-Path $path) {
+            Write-Host "[OK] Found WinVLCBridge.dll at: $path"
+            Write-Host ""
+            Write-Host "Build artifacts:"
+            Get-ChildItem (Split-Path $path -Parent) -Recurse | Select-Object Name, Length, FullName | Format-Table -AutoSize
+            $found = $true
+            
+            # Save the path for artifact upload
+            $outputDir = Split-Path $path -Parent
+            Write-Host "##[set-output name=output_dir;]$outputDir"
+            break
+          }
+        }
+        
+        if (-not $found) {
+          Write-Error "Failed to find WinVLCBridge.dll in any expected location"
+          Write-Host ""
+          Write-Host "Searching entire workspace:"
+          Get-ChildItem -Recurse -Include "*.dll" | Where-Object {$_.Name -like "*VLC*"} | Select-Object FullName
           exit 1
         }
       shell: powershell
@@ -168,10 +225,14 @@ jobs:
       with:
         name: WinVLCBridge-Release-x64
         path: |
-          WinVLCBridge/build/bin/Release/WinVLCBridge.dll
-          WinVLCBridge/build/bin/Release/libvlc.dll
-          WinVLCBridge/build/bin/Release/libvlccore.dll
-          WinVLCBridge/build/bin/Release/plugins/
+          **/build/bin/Release/WinVLCBridge.dll
+          **/build/bin/Release/libvlc.dll
+          **/build/bin/Release/libvlccore.dll
+          **/build/bin/Release/plugins/
+          **/build/Release/WinVLCBridge.dll
+          **/build/Release/libvlc.dll
+          **/build/Release/libvlccore.dll
+          **/build/Release/plugins/
         retention-days: 30
         
     - name: 创建 Release（仅在打 tag 时）
@@ -179,9 +240,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          WinVLCBridge/build/bin/Release/WinVLCBridge.dll
-          WinVLCBridge/build/bin/Release/libvlc.dll
-          WinVLCBridge/build/bin/Release/libvlccore.dll
+          **/build/**/Release/WinVLCBridge.dll
+          **/build/**/Release/libvlc.dll
+          **/build/**/Release/libvlccore.dll
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
