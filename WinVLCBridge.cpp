@@ -130,23 +130,30 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    // 创建子窗口（模仿 macOS 的 addSubview 逻辑）
-    // 使用相对坐标，子窗口会自动跟随父窗口移动
+    // 获取父窗口的屏幕坐标
+    RECT parentRect;
+    GetWindowRect(parentWindow, &parentRect);
+    
+    // 计算子窗口在屏幕上的绝对位置
+    int screenX = parentRect.left + static_cast<int>(x);
+    int screenY = parentRect.top + static_cast<int>(y);
+    
+    LogMessage("父窗口位置: (%d,%d), 子窗口屏幕坐标: (%d,%d)", 
+               parentRect.left, parentRect.top, screenX, screenY);
+    
+    // 创建独立的顶层窗口（popup）
     wrapper->videoWindow = CreateWindowExW(
-        WS_EX_NOACTIVATE,  // 不激活窗口
-        L"VLCVideoWindow",  // 使用自定义窗口类
+        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        L"VLCVideoWindow",
         L"Video Window",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,  // 子窗口样式
-        static_cast<int>(x), static_cast<int>(y),  // 相对于父窗口的坐标
+        WS_POPUP | WS_VISIBLE,
+        screenX, screenY,
         static_cast<int>(width), static_cast<int>(height),
-        parentWindow,  // 父窗口
+        NULL,
         NULL,
         GetModuleHandle(NULL),
         NULL
     );
-    
-    LogMessage("创建子窗口（模仿 macOS addSubview）- 相对坐标: (%d,%d)", 
-               static_cast<int>(x), static_cast<int>(y));
     
     if (!wrapper->videoWindow) {
         LogMessage("错误：无法创建窗口，错误码: %d", GetLastError());
@@ -170,8 +177,9 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     }
     
     // 将子窗口置于同级窗口的最上方（覆盖 Chromium 渲染层）
-    SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, screenX, screenY,
+        static_cast<int>(width), static_cast<int>(height),
+        SWP_NOACTIVATE | SWP_SHOWWINDOW);
     
     // 强制刷新窗口
     InvalidateRect(wrapper->videoWindow, NULL, TRUE);
@@ -185,6 +193,21 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     LogMessage("窗口创建成功 - 窗口大小: %.0fx%.0f, 位置: (%.0f, %.0f)", width, height, x, y);
     
     return wrapper;
+}
+
+void wv_update_window_position(void* playerHandle) {
+    if (!playerHandle) return;
+    WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
+    if (!wrapper->videoWindow || !wrapper->parentWindow) return;
+
+    RECT parentRect;
+    GetWindowRect(wrapper->parentWindow, &parentRect);
+
+    int newX = parentRect.left + wrapper->offsetX;
+    int newY = parentRect.top + wrapper->offsetY;
+
+    SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, newX, newY, 0, 0,
+                 SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
 void wv_player_release(void* playerHandle) {
