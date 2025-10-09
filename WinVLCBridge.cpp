@@ -130,30 +130,23 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    // 获取父窗口的屏幕坐标
-    RECT parentRect;
-    GetWindowRect(parentWindow, &parentRect);
-    
-    // 计算子窗口在屏幕上的绝对位置
-    int screenX = parentRect.left + static_cast<int>(x);
-    int screenY = parentRect.top + static_cast<int>(y);
-    
-    LogMessage("父窗口位置: (%d,%d), 子窗口屏幕坐标: (%d,%d)", 
-               parentRect.left, parentRect.top, screenX, screenY);
-    
-    // 创建独立的顶层窗口（popup），不是子窗口
+    // 创建子窗口（模仿 macOS 的 addSubview 逻辑）
+    // 使用相对坐标，子窗口会自动跟随父窗口移动
     wrapper->videoWindow = CreateWindowExW(
-        WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TRANSPARENT,  // 不激活，最顶层，透明边框
+        WS_EX_NOACTIVATE,  // 不激活窗口
         L"VLCVideoWindow",  // 使用自定义窗口类
         L"Video Window",
-        WS_POPUP | WS_VISIBLE,  // 使用 popup 窗口而不是 child
-        screenX, screenY,  // 使用屏幕坐标
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,  // 子窗口样式
+        static_cast<int>(x), static_cast<int>(y),  // 相对于父窗口的坐标
         static_cast<int>(width), static_cast<int>(height),
-        NULL,  // 没有父窗口（作为独立窗口）
+        parentWindow,  // 父窗口
         NULL,
         GetModuleHandle(NULL),
         NULL
     );
+    
+    LogMessage("创建子窗口（模仿 macOS addSubview）- 相对坐标: (%d,%d)", 
+               static_cast<int>(x), static_cast<int>(y));
     
     if (!wrapper->videoWindow) {
         LogMessage("错误：无法创建窗口，错误码: %d", GetLastError());
@@ -176,8 +169,8 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         LogMessage("已强制绘制黑色背景");
     }
     
-    // 将窗口置于 Z-order 最顶层（覆盖所有其他窗口）
-    SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, 0, 0, 0, 0, 
+    // 将子窗口置于同级窗口的最上方（覆盖 Chromium 渲染层）
+    SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     
     // 强制刷新窗口
