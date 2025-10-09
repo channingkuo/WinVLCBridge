@@ -246,8 +246,29 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     WVPlayerWrapper* wrapper = new WVPlayerWrapper();
     memset(wrapper, 0, sizeof(WVPlayerWrapper));
     
+    // 获取 DLL 所在目录，用于定位 VLC 插件
+    char dllPath[MAX_PATH];
+    HMODULE hModule = NULL;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)&wv_create_player_for_view, &hModule);
+    GetModuleFileNameA(hModule, dllPath, MAX_PATH);
+    
+    // 获取 DLL 所在目录
+    std::string dllDir = dllPath;
+    size_t lastSlash = dllDir.find_last_of("\\/");
+    if (lastSlash != std::string::npos) {
+        dllDir = dllDir.substr(0, lastSlash);
+    }
+    
+    // 构建插件路径
+    std::string pluginPath = "--plugin-path=" + dllDir + "\\plugins";
+    
+    LogMessage("DLL 目录: %s", dllDir.c_str());
+    LogMessage("插件路径: %s", pluginPath.c_str());
+    
     // 初始化 libVLC
     const char* vlc_args[] = {
+        pluginPath.c_str(),
         "--file-caching=50",
         "--network-caching=100",
         "--avcodec-fast",
