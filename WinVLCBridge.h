@@ -34,6 +34,12 @@ extern "C" {
 WINVLCBRIDGE_API void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, float height);
 
 /**
+ * 更新窗口位置（跟随父窗口移动）
+ * @param playerHandle 窗口句柄
+ */
+WINVLCBRIDGE_API void wv_update_window_position(void* playerHandle);
+
+/**
  * 释放窗口资源
  * @param playerHandle 窗口句柄
  */
