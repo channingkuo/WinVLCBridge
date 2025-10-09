@@ -323,41 +323,83 @@ static bool RegisterVideoWindowClass() {
     return false;
 }
 
+// 计算并应用视频居中缩放（参考 macOS centerVideoLayerInHostView 实现）
+static bool ApplyVideoCenterScaling(WVPlayerWrapper* wrapper) {
+    if (!wrapper || !wrapper->mediaPlayer) {
+        LogMessage("错误：wrapper 或 mediaPlayer 为空");
+        return false;
+    }
+    
+    // 获取视频实际尺寸
+    unsigned int videoWidth = 0, videoHeight = 0;
+    if (libvlc_video_get_size(wrapper->mediaPlayer, 0, &videoWidth, &videoHeight) != 0 || 
+        videoWidth == 0 || videoHeight == 0) {
+        LogMessage("无法获取视频尺寸或尺寸无效，使用默认缩放");
+        libvlc_video_set_scale(wrapper->mediaPlayer, 0);
+        return false;
+    }
+    
+    // 获取窗口尺寸
+    float hostWidth = (float)wrapper->videoWidth;
+    float hostHeight = (float)wrapper->videoHeight;
+    
+    LogMessage("视频原始尺寸: %ux%u", videoWidth, videoHeight);
+    LogMessage("窗口尺寸: %.0fx%.0f", hostWidth, hostHeight);
+    
+    // 计算缩放比例（aspect fit - 类似 macOS 实现）
+    // scaleW = hostWidth / videoWidth
+    // scaleH = hostHeight / videoHeight
+    // scale = MIN(scaleW, scaleH)  取较小的缩放比例，确保完整显示
+    float scaleW = hostWidth / (float)videoWidth;
+    float scaleH = hostHeight / (float)videoHeight;
+    float scale = (scaleW < scaleH) ? scaleW : scaleH;  // MIN
+    
+    // 计算缩放后的视频尺寸
+    float scaledWidth = (float)videoWidth * scale;
+    float scaledHeight = (float)videoHeight * scale;
+    
+    // 计算居中位置（相对于窗口）
+    float x = (hostWidth - scaledWidth) / 2.0f;
+    float y = (hostHeight - scaledHeight) / 2.0f;
+    
+    LogMessage("缩放计算: scaleW=%.3f, scaleH=%.3f, 最终scale=%.3f", scaleW, scaleH, scale);
+    LogMessage("缩放后尺寸: %.0fx%.0f, 居中位置: (%.0f, %.0f)", scaledWidth, scaledHeight, x, y);
+    
+    // 判断 letterbox 或 pillarbox
+    float videoAspect = (float)videoWidth / (float)videoHeight;
+    float windowAspect = hostWidth / hostHeight;
+    
+    if (videoAspect > windowAspect) {
+        LogMessage("视频更宽（宽高比 %.2f > %.2f），将产生上下黑边（letterbox）", videoAspect, windowAspect);
+    } else if (videoAspect < windowAspect) {
+        LogMessage("视频更高（宽高比 %.2f < %.2f），将产生左右黑边（pillarbox）", videoAspect, windowAspect);
+    } else {
+        LogMessage("视频宽高比完美匹配窗口（%.2f）", videoAspect);
+    }
+    
+    // 设置 VLC 缩放因子
+    // VLC 的 scale 参数表示相对于原始尺寸的缩放倍数
+    libvlc_video_set_scale(wrapper->mediaPlayer, scale);
+    
+    // 不设置固定宽高比，让 VLC 使用视频原始宽高比
+    libvlc_video_set_aspect_ratio(wrapper->mediaPlayer, NULL);
+    
+    LogMessage("视频居中缩放已设置完成 - scale=%.3f", scale);
+    return true;
+}
+
 // VLC 事件回调：当视频开始播放时调整缩放
 static void OnMediaPlayerPlaying(const libvlc_event_t* event, void* userData) {
     WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(userData);
     if (!wrapper || !wrapper->mediaPlayer) return;
     
-    LogMessage("视频开始播放事件触发，正在设置视频适配模式...");
+    LogMessage("视频开始播放事件触发，正在计算居中缩放参数...");
     
     // 等待视频输出准备好
     Sleep(100);
     
-    // 设置视频自动适配窗口，保持宽高比（letterbox/pillarbox效果）
-    // scale = 0 表示自动适配
-    libvlc_video_set_scale(wrapper->mediaPlayer, 0);
-    
-    // 不设置 aspect ratio，让 VLC 使用视频原始宽高比
-    // 这样 VLC 会自动在窗口中居中显示视频，未覆盖区域显示黑色背景
-    
-    // 获取视频实际尺寸
-    unsigned int videoWidth = 0, videoHeight = 0;
-    if (libvlc_video_get_size(wrapper->mediaPlayer, 0, &videoWidth, &videoHeight) == 0) {
-        LogMessage("视频原始尺寸: %ux%u", videoWidth, videoHeight);
-        LogMessage("窗口尺寸: %dx%d", wrapper->videoWidth, wrapper->videoHeight);
-        
-        // 计算宽高比
-        float videoAspect = (float)videoWidth / (float)videoHeight;
-        float windowAspect = (float)wrapper->videoWidth / (float)wrapper->videoHeight;
-        
-        if (videoAspect > windowAspect) {
-            LogMessage("视频更宽，将产生上下黑边（letterbox）");
-        } else {
-            LogMessage("视频更高，将产生左右黑边（pillarbox）");
-        }
-    }
-    
-    LogMessage("视频适配模式已设置完成");
+    // 应用视频居中缩放
+    ApplyVideoCenterScaling(wrapper);
 }
 
 // 判断字符串是否为网络流地址
@@ -800,6 +842,18 @@ void wv_player_set_background_color(void* playerHandle, int red, int green, int 
         InvalidateRect(wrapper->videoWindow, NULL, TRUE);
         UpdateWindow(wrapper->videoWindow);
     }
+}
+
+bool wv_player_recalculate_video_center(void* playerHandle) {
+    if (!playerHandle) {
+        LogMessage("错误：播放器句柄为空");
+        return false;
+    }
+    
+    WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
+    
+    LogMessage("手动触发视频居中缩放计算");
+    return ApplyVideoCenterScaling(wrapper);
 }
 
 void wv_player_update_rectangles(void* playerHandle, const float* rects, int rectCount, 
