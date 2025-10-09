@@ -209,6 +209,8 @@ struct WVPlayerWrapper {
     HWND videoWindow;      // VLC 视频窗口
     HWND overlayWindow;    // 覆盖层窗口
     OverlayWindowData* overlayData;
+    int videoWidth;        // 视频窗口宽度
+    int videoHeight;       // 视频窗口高度
 };
 
 // ==================== 工具函数 ====================
@@ -253,6 +255,10 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     // 创建播放器包装对象
     WVPlayerWrapper* wrapper = new WVPlayerWrapper();
     memset(wrapper, 0, sizeof(WVPlayerWrapper));
+    
+    // 保存视频窗口尺寸
+    wrapper->videoWidth = static_cast<int>(width);
+    wrapper->videoHeight = static_cast<int>(height);
     
     // 获取 DLL 所在目录，用于定位 VLC 插件
     char dllPath[MAX_PATH];
@@ -449,6 +455,23 @@ void wv_player_play(void* playerHandle, const char* source) {
     
     if (playResult == 0) {
         LogMessage("开始播放: %s", sourcePath.c_str());
+        
+        // 设置视频自动适应窗口（不保持宽高比，填满整个窗口）
+        // 使用空字符串表示不保持固定宽高比，让视频填满窗口
+        libvlc_video_set_aspect_ratio(wrapper->mediaPlayer, NULL);
+        
+        // 设置缩放为 0，表示自动适应窗口大小
+        libvlc_video_set_scale(wrapper->mediaPlayer, 0);
+        
+        LogMessage("已设置视频自动适应窗口: %dx%d", wrapper->videoWidth, wrapper->videoHeight);
+        
+        // 获取并记录视频窗口的实际位置和大小
+        RECT rect;
+        GetWindowRect(wrapper->videoWindow, &rect);
+        POINT pt = {rect.left, rect.top};
+        ScreenToClient(GetParent(wrapper->videoWindow), &pt);
+        LogMessage("视频窗口实际位置: (%d,%d), 大小: %dx%d", 
+                   pt.x, pt.y, rect.right - rect.left, rect.bottom - rect.top);
         
         // 确保视频窗口可见并在顶层（覆盖 WebView）
         ShowWindow(wrapper->videoWindow, SW_SHOW);
