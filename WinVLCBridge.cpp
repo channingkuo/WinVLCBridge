@@ -126,7 +126,7 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     
     // 创建子窗口（使用自定义窗口类，确保黑色背景）
     wrapper->videoWindow = CreateWindowExW(
-        WS_EX_NOACTIVATE,  // 不激活窗口
+        WS_EX_NOACTIVATE | WS_EX_TOPMOST,  // 不激活窗口，置于最顶层
         L"VLCVideoWindow",  // 使用自定义窗口类
         L"Video Window",
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
@@ -159,15 +159,19 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         LogMessage("已强制绘制黑色背景");
     }
     
-    // 将窗口置于 Z-order 顶层
-    SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
+    // 将窗口置于 Z-order 最顶层（覆盖所有其他窗口）
+    SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, 0, 0, 0, 0, 
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     
     // 强制刷新窗口
     InvalidateRect(wrapper->videoWindow, NULL, TRUE);
     UpdateWindow(wrapper->videoWindow);
     
-    LogMessage("窗口已设置为 Z-order 顶层并强制刷新");
+    // 再次确保窗口可见
+    ShowWindow(wrapper->videoWindow, SW_SHOW);
+    BringWindowToTop(wrapper->videoWindow);
+    
+    LogMessage("窗口已设置为 Z-order 最顶层并强制刷新");
     LogMessage("窗口创建成功 - 窗口大小: %.0fx%.0f, 位置: (%.0f, %.0f)", width, height, x, y);
     
     return wrapper;
