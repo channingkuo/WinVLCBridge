@@ -148,11 +148,26 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
                wrapper->videoWindow, static_cast<int>(x), static_cast<int>(y),
                static_cast<int>(width), static_cast<int>(height));
     
+    // 强制绘制黑色背景
+    HDC hdc = GetDC(wrapper->videoWindow);
+    if (hdc) {
+        RECT rect;
+        GetClientRect(wrapper->videoWindow, &rect);
+        HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        FillRect(hdc, &rect, blackBrush);
+        ReleaseDC(wrapper->videoWindow, hdc);
+        LogMessage("已强制绘制黑色背景");
+    }
+    
     // 将窗口置于 Z-order 顶层
     SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     
-    LogMessage("窗口已设置为 Z-order 顶层");
+    // 强制刷新窗口
+    InvalidateRect(wrapper->videoWindow, NULL, TRUE);
+    UpdateWindow(wrapper->videoWindow);
+    
+    LogMessage("窗口已设置为 Z-order 顶层并强制刷新");
     LogMessage("窗口创建成功 - 窗口大小: %.0fx%.0f, 位置: (%.0f, %.0f)", width, height, x, y);
     
     return wrapper;
