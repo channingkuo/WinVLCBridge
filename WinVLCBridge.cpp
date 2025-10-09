@@ -255,28 +255,40 @@ struct WVPlayerWrapper {
     int videoWidth;        // 视频窗口宽度
     int videoHeight;       // 视频窗口高度
     libvlc_event_manager_t* eventManager;  // 事件管理器
+    COLORREF backgroundColor;  // 背景颜色（RGB）
+    HBRUSH backgroundBrush;    // 背景画刷
 };
 
 // ==================== 工具函数 ====================
 
-// 视频窗口过程（确保黑色背景正确显示）
+// 视频窗口过程（使用自定义背景色）
 static LRESULT CALLBACK VideoWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    // 获取 wrapper 数据
+    WVPlayerWrapper* wrapper = (WVPlayerWrapper*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    
     switch (msg) {
         case WM_ERASEBKGND: {
-            // 用黑色填充背景
+            // 用背景色填充
             HDC hdc = (HDC)wParam;
             RECT rect;
             GetClientRect(hwnd, &rect);
-            HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
-            FillRect(hdc, &rect, blackBrush);
+            
+            // 如果有自定义背景画刷，使用它；否则使用黑色
+            HBRUSH brush = wrapper && wrapper->backgroundBrush ? 
+                          wrapper->backgroundBrush : 
+                          (HBRUSH)GetStockObject(BLACK_BRUSH);
+            FillRect(hdc, &rect, brush);
             return 1; // 表示已处理
         }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
-            // 用黑色填充
-            HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
-            FillRect(hdc, &ps.rcPaint, blackBrush);
+            
+            // 如果有自定义背景画刷，使用它；否则使用黑色
+            HBRUSH brush = wrapper && wrapper->backgroundBrush ? 
+                          wrapper->backgroundBrush : 
+                          (HBRUSH)GetStockObject(BLACK_BRUSH);
+            FillRect(hdc, &ps.rcPaint, brush);
             EndPaint(hwnd, &ps);
             return 0;
         }
@@ -393,6 +405,20 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     wrapper->videoWidth = static_cast<int>(width);
     wrapper->videoHeight = static_cast<int>(height);
     
+    // 设置背景颜色（默认黑色，可以修改为其他颜色）
+    wrapper->backgroundColor = RGB(0, 0, 0);  // 黑色
+    // 如果需要其他颜色，可以改为：
+    // wrapper->backgroundColor = RGB(255, 0, 0);  // 红色
+    // wrapper->backgroundColor = RGB(0, 255, 0);  // 绿色
+    // wrapper->backgroundColor = RGB(30, 30, 30); // 深灰色
+    
+    // 创建背景画刷
+    wrapper->backgroundBrush = CreateSolidBrush(wrapper->backgroundColor);
+    LogMessage("背景色设置为: RGB(%d, %d, %d)", 
+               GetRValue(wrapper->backgroundColor),
+               GetGValue(wrapper->backgroundColor),
+               GetBValue(wrapper->backgroundColor));
+    
     // 获取 DLL 所在目录，用于定位 VLC 插件
     char dllPath[MAX_PATH];
     HMODULE hModule = NULL;
@@ -475,9 +501,16 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    LogMessage("视频窗口创建成功（带黑色背景）: HWND=0x%p, 位置=(%d,%d), 大小=%dx%d", 
+    LogMessage("视频窗口创建成功（带自定义背景色）: HWND=0x%p, 位置=(%d,%d), 大小=%dx%d", 
                wrapper->videoWindow, static_cast<int>(x), static_cast<int>(y),
                static_cast<int>(width), static_cast<int>(height));
+    
+    // 将 wrapper 指针保存到窗口的用户数据中，以便窗口过程访问
+    SetWindowLongPtr(wrapper->videoWindow, GWLP_USERDATA, (LONG_PTR)wrapper);
+    
+    // 强制重绘以应用背景色
+    InvalidateRect(wrapper->videoWindow, NULL, TRUE);
+    UpdateWindow(wrapper->videoWindow);
     
     // 将视频窗口置于 Z-order 顶层（在 Chromium WebView 之上）
     SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
@@ -727,9 +760,46 @@ void wv_player_release(void* playerHandle) {
         DestroyWindow(wrapper->videoWindow);
     }
     
+    // 删除背景画刷
+    if (wrapper->backgroundBrush) {
+        DeleteObject(wrapper->backgroundBrush);
+        LogMessage("已删除背景画刷");
+    }
+    
     delete wrapper;
     
     LogMessage("播放器资源已释放");
+}
+
+void wv_player_set_background_color(void* playerHandle, int red, int green, int blue) {
+    if (!playerHandle) {
+        LogMessage("错误：播放器句柄为空");
+        return;
+    }
+    
+    WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
+    
+    // 限制 RGB 值在 0-255 范围内
+    red = max(0, min(255, red));
+    green = max(0, min(255, green));
+    blue = max(0, min(255, blue));
+    
+    // 删除旧的画刷
+    if (wrapper->backgroundBrush) {
+        DeleteObject(wrapper->backgroundBrush);
+    }
+    
+    // 创建新的背景色和画刷
+    wrapper->backgroundColor = RGB(red, green, blue);
+    wrapper->backgroundBrush = CreateSolidBrush(wrapper->backgroundColor);
+    
+    LogMessage("背景色已更新为: RGB(%d, %d, %d)", red, green, blue);
+    
+    // 强制重绘窗口以应用新背景色
+    if (wrapper->videoWindow) {
+        InvalidateRect(wrapper->videoWindow, NULL, TRUE);
+        UpdateWindow(wrapper->videoWindow);
+    }
 }
 
 void wv_player_update_rectangles(void* playerHandle, const float* rects, int rectCount, 
