@@ -1,7 +1,7 @@
 //
 //  WinVLCBridge.cpp
 //  WinVLCBridge
-//  视频能正常播放，就是窗口位置不正确。
+//
 //  Created by Channing Kuo on 2025/10/7.
 //
 
@@ -71,6 +71,10 @@ struct OverlayWindowData {
     float lineWidth;
     float red, green, blue, alpha;
     ULONG_PTR gdiplusToken;
+    
+    // 延迟信息显示
+    std::wstring statsText;      // 统计信息文本
+    bool showStats;              // 是否显示统计信息
 };
 
 // 覆盖层窗口类名
@@ -85,22 +89,59 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            if (data && !data->rectangles.empty()) {
+            if (data) {
                 Graphics graphics(hdc);
                 graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+                graphics.SetTextRenderingHint(TextRenderingHintAntiAlias);
                 
-                // 创建画笔
-                Color color(
-                    static_cast<BYTE>(data->alpha * 255),
-                    static_cast<BYTE>(data->red * 255),
-                    static_cast<BYTE>(data->green * 255),
-                    static_cast<BYTE>(data->blue * 255)
-                );
-                Pen pen(color, data->lineWidth);
+                // 绘制矩形
+                if (!data->rectangles.empty()) {
+                    // 创建画笔
+                    Color color(
+                        static_cast<BYTE>(data->alpha * 255),
+                        static_cast<BYTE>(data->red * 255),
+                        static_cast<BYTE>(data->green * 255),
+                        static_cast<BYTE>(data->blue * 255)
+                    );
+                    Pen pen(color, data->lineWidth);
+                    
+                    // 绘制所有矩形
+                    for (const auto& rect : data->rectangles) {
+                        graphics.DrawRectangle(&pen, rect.x, rect.y, rect.width, rect.height);
+                    }
+                }
                 
-                // 绘制所有矩形
-                for (const auto& rect : data->rectangles) {
-                    graphics.DrawRectangle(&pen, rect.x, rect.y, rect.width, rect.height);
+                // 绘制统计信息文本（右上角）
+                if (data->showStats && !data->statsText.empty()) {
+                    // 创建字体
+                    FontFamily fontFamily(L"Consolas");
+                    Font font(&fontFamily, 14, FontStyleBold, UnitPixel);
+                    
+                    // 半透明黑色背景
+                    SolidBrush bgBrush(Color(180, 0, 0, 0));
+                    // 亮绿色文本
+                    SolidBrush textBrush(Color(255, 0, 255, 0));
+                    
+                    // 测量文本大小
+                    RectF layoutRect(0, 0, 500, 200);
+                    RectF boundingBox;
+                    graphics.MeasureString(data->statsText.c_str(), -1, &font, layoutRect, &boundingBox);
+                    
+                    // 获取窗口尺寸
+                    RECT clientRect;
+                    GetClientRect(hwnd, &clientRect);
+                    
+                    // 计算右上角位置（距离右边和上边各10像素）
+                    float textX = clientRect.right - boundingBox.Width - 15;
+                    float textY = 10;
+                    
+                    // 绘制背景矩形（添加一些内边距）
+                    RectF bgRect(textX - 5, textY - 3, boundingBox.Width + 10, boundingBox.Height + 6);
+                    graphics.FillRectangle(&bgBrush, bgRect);
+                    
+                    // 绘制文本
+                    PointF textPos(textX, textY);
+                    graphics.DrawString(data->statsText.c_str(), -1, &font, textPos, &textBrush);
                 }
             }
             
@@ -168,6 +209,7 @@ static HWND CreateOverlayWindow(HWND parent, int x, int y, int width, int height
     data->green = 1.0f;
     data->blue = 0.0f;
     data->alpha = 1.0f;
+    data->showStats = false;  // 默认不显示统计信息
     
     // 创建透明的、可层叠的子窗口
     HWND hwnd = CreateWindowExW(
@@ -652,5 +694,76 @@ void wv_player_clear_rectangles(void* playerHandle) {
     InvalidateRect(wrapper->overlayWindow, NULL, TRUE);
     
     LogMessage("已清除覆盖层的所有矩形");
+}
+
+bool wv_player_get_stats(void* playerHandle, char* buffer, int bufferSize) {
+    if (!playerHandle || !buffer || bufferSize <= 0) {
+        return false;
+    }
+    
+    WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
+    
+    if (!wrapper->mediaPlayer) {
+        return false;
+    }
+    
+    // 获取 VLC 播放统计信息
+    libvlc_media_stats_t stats;
+    memset(&stats, 0, sizeof(stats));
+    
+    if (libvlc_media_player_get_stats(wrapper->mediaPlayer, &stats)) {
+        // 格式化统计信息
+        snprintf(buffer, bufferSize,
+                 "Bitrate: %.2f kb/s\n"
+                 "Read: %.2f MB\n"
+                 "Demux: %.2f MB\n"
+                 "Lost frames: %d\n"
+                 "Display FPS: %.1f",
+                 stats.f_input_bitrate,
+                 stats.i_read_bytes / (1024.0f * 1024.0f),
+                 stats.i_demux_read_bytes / (1024.0f * 1024.0f),
+                 stats.i_lost_pictures,
+                 stats.f_displayed_pictures > 0 ? stats.f_displayed_pictures : 0.0f
+        );
+        
+        return true;
+    }
+    
+    return false;
+}
+
+void wv_player_update_stats_display(void* playerHandle, const char* statsText, bool show) {
+    if (!playerHandle) {
+        LogMessage("错误：播放器句柄为空");
+        return;
+    }
+    
+    WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
+    
+    if (!wrapper->overlayWindow || !wrapper->overlayData) {
+        LogMessage("警告：覆盖层窗口不存在");
+        return;
+    }
+    
+    // 更新统计信息文本
+    wrapper->overlayData->showStats = show;
+    
+    if (statsText && show) {
+        // 将 UTF-8 转换为宽字符
+        int len = MultiByteToWideChar(CP_UTF8, 0, statsText, -1, NULL, 0);
+        if (len > 0) {
+            wrapper->overlayData->statsText.resize(len);
+            MultiByteToWideChar(CP_UTF8, 0, statsText, -1, &wrapper->overlayData->statsText[0], len);
+        }
+    } else {
+        wrapper->overlayData->statsText.clear();
+    }
+    
+    // 刷新窗口
+    InvalidateRect(wrapper->overlayWindow, NULL, TRUE);
+    
+    if (show) {
+        LogMessage("已更新统计信息显示");
+    }
 }
 
