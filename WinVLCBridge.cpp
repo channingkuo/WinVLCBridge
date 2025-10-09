@@ -40,8 +40,11 @@ static void LogMessage(const char* format, ...) {
 
 struct WVPlayerWrapper {
     HWND videoWindow;    // 视频窗口
+    HWND parentWindow;   // 父窗口
     int videoWidth;      // 视频窗口宽度
     int videoHeight;     // 视频窗口高度
+    int offsetX;         // 相对于父窗口的X偏移
+    int offsetY;         // 相对于父窗口的Y偏移
 };
 
 // ==================== 工具函数 ====================
@@ -113,9 +116,12 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     WVPlayerWrapper* wrapper = new WVPlayerWrapper();
     memset(wrapper, 0, sizeof(WVPlayerWrapper));
     
-    // 保存窗口尺寸
+    // 保存窗口尺寸和父窗口信息
+    wrapper->parentWindow = parentWindow;
     wrapper->videoWidth = static_cast<int>(width);
     wrapper->videoHeight = static_cast<int>(height);
+    wrapper->offsetX = static_cast<int>(x);
+    wrapper->offsetY = static_cast<int>(y);
     
     // 注册自定义视频窗口类（带黑色背景）
     if (!RegisterVideoWindowClass()) {
@@ -124,15 +130,26 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    // 创建子窗口（使用自定义窗口类，确保黑色背景）
+    // 获取父窗口的屏幕坐标
+    RECT parentRect;
+    GetWindowRect(parentWindow, &parentRect);
+    
+    // 计算子窗口在屏幕上的绝对位置
+    int screenX = parentRect.left + static_cast<int>(x);
+    int screenY = parentRect.top + static_cast<int>(y);
+    
+    LogMessage("父窗口位置: (%d,%d), 子窗口屏幕坐标: (%d,%d)", 
+               parentRect.left, parentRect.top, screenX, screenY);
+    
+    // 创建独立的顶层窗口（popup），不是子窗口
     wrapper->videoWindow = CreateWindowExW(
-        WS_EX_NOACTIVATE | WS_EX_TOPMOST,  // 不激活窗口，置于最顶层
+        WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TRANSPARENT,  // 不激活，最顶层，透明边框
         L"VLCVideoWindow",  // 使用自定义窗口类
         L"Video Window",
-        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-        static_cast<int>(x), static_cast<int>(y),
+        WS_POPUP | WS_VISIBLE,  // 使用 popup 窗口而不是 child
+        screenX, screenY,  // 使用屏幕坐标
         static_cast<int>(width), static_cast<int>(height),
-        parentWindow,
+        NULL,  // 没有父窗口（作为独立窗口）
         NULL,
         GetModuleHandle(NULL),
         NULL
