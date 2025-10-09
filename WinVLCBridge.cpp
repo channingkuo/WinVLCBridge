@@ -498,14 +498,13 @@ void wv_player_play(void* playerHandle, const char* source) {
     if (playResult == 0) {
         LogMessage("开始播放: %s", sourcePath.c_str());
         
-        // 设置视频自动适应窗口（不保持宽高比，填满整个窗口）
-        // 使用空字符串表示不保持固定宽高比，让视频填满窗口
-        libvlc_video_set_aspect_ratio(wrapper->mediaPlayer, NULL);
-        
-        // 设置缩放为 0，表示自动适应窗口大小
+        // 保持视频原始宽高比，自动适应窗口
+        // 不调用 libvlc_video_set_aspect_ratio，让 VLC 使用视频原始宽高比
+        // 设置缩放为 0，VLC 会自动计算最佳缩放比例以适配窗口
+        // 这样会产生 letterbox（上下黑边）或 pillarbox（左右黑边）效果
         libvlc_video_set_scale(wrapper->mediaPlayer, 0);
         
-        LogMessage("已设置视频自动适应窗口: %dx%d", wrapper->videoWidth, wrapper->videoHeight);
+        LogMessage("已设置视频保持原始宽高比并自动适配窗口: %dx%d", wrapper->videoWidth, wrapper->videoHeight);
         
         // 获取并记录视频窗口的实际位置和大小
         RECT rect;
