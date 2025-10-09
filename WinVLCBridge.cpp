@@ -283,7 +283,10 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         "--no-sub-autodetect-file",
         "--no-video-title-show",
         "--no-snapshot-preview",
-        "--no-osd"
+        "--no-osd",
+        "--no-video-title",           // 不显示视频标题
+        "--no-mouse-events",          // 禁用鼠标事件
+        "--no-keyboard-events"        // 禁用键盘事件
     };
     
     wrapper->vlcInstance = libvlc_new(sizeof(vlc_args) / sizeof(vlc_args[0]), vlc_args);
@@ -307,7 +310,7 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         0,
         L"STATIC",
         L"Video Window",
-        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         static_cast<int>(x), static_cast<int>(y),
         static_cast<int>(width), static_cast<int>(height),
         parentWindow,
@@ -324,10 +327,23 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
+    LogMessage("视频窗口创建成功: HWND=0x%p, 位置=(%d,%d), 大小=%dx%d", 
+               wrapper->videoWindow, static_cast<int>(x), static_cast<int>(y),
+               static_cast<int>(width), static_cast<int>(height));
+    
+    // 设置黑色背景（避免闪烁）
+    HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    SetClassLongPtr(wrapper->videoWindow, GCLP_HBRBACKGROUND, (LONG_PTR)blackBrush);
+    
+    // 强制重绘以应用黑色背景
+    InvalidateRect(wrapper->videoWindow, NULL, TRUE);
+    UpdateWindow(wrapper->videoWindow);
+    
     // 设置 VLC 使用该窗口进行渲染
     libvlc_media_player_set_hwnd(wrapper->mediaPlayer, wrapper->videoWindow);
+    LogMessage("已设置 VLC 渲染窗口句柄");
     
-    // 创建覆盖层窗口
+    // 创建覆盖层窗口（必须在视频窗口之后创建，确保在上层）
     wrapper->overlayWindow = CreateOverlayWindow(
         parentWindow,
         static_cast<int>(x), static_cast<int>(y),
@@ -338,6 +354,12 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         wrapper->overlayData = reinterpret_cast<OverlayWindowData*>(
             GetWindowLongPtr(wrapper->overlayWindow, GWLP_USERDATA)
         );
+        
+        // 确保覆盖层窗口在视频窗口上方
+        SetWindowPos(wrapper->overlayWindow, HWND_TOP, 0, 0, 0, 0, 
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        
+        LogMessage("覆盖层窗口 Z-order 已设置为顶层");
     }
     
     LogMessage("播放器创建成功 - 窗口大小: %.0fx%.0f, 位置: (%.0f, %.0f)", width, height, x, y);
@@ -421,6 +443,14 @@ void wv_player_play(void* playerHandle, const char* source) {
     
     if (playResult == 0) {
         LogMessage("开始播放: %s", sourcePath.c_str());
+        
+        // 确保视频窗口可见并在前台
+        ShowWindow(wrapper->videoWindow, SW_SHOW);
+        UpdateWindow(wrapper->videoWindow);
+        SetWindowPos(wrapper->videoWindow, HWND_BOTTOM, 0, 0, 0, 0, 
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        
+        LogMessage("视频窗口已更新并设置 Z-order");
     } else {
         LogMessage("错误：播放失败，返回码: %d", playResult);
         const char* vlcError = libvlc_errmsg();
