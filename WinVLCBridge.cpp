@@ -248,14 +248,105 @@ static HWND CreateOverlayWindow(HWND parent, int x, int y, int width, int height
 struct WVPlayerWrapper {
     libvlc_instance_t* vlcInstance;
     libvlc_media_player_t* mediaPlayer;
+    libvlc_media_t* currentMedia;  // 当前媒体对象
     HWND videoWindow;      // VLC 视频窗口
     HWND overlayWindow;    // 覆盖层窗口
     OverlayWindowData* overlayData;
     int videoWidth;        // 视频窗口宽度
     int videoHeight;       // 视频窗口高度
+    libvlc_event_manager_t* eventManager;  // 事件管理器
 };
 
 // ==================== 工具函数 ====================
+
+// 视频窗口过程（确保黑色背景正确显示）
+static LRESULT CALLBACK VideoWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_ERASEBKGND: {
+            // 用黑色填充背景
+            HDC hdc = (HDC)wParam;
+            RECT rect;
+            GetClientRect(hwnd, &rect);
+            HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
+            FillRect(hdc, &rect, blackBrush);
+            return 1; // 表示已处理
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            // 用黑色填充
+            HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
+            FillRect(hdc, &ps.rcPaint, blackBrush);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+// 注册视频窗口类
+static bool RegisterVideoWindowClass() {
+    static bool registered = false;
+    if (registered) return true;
+    
+    WNDCLASSEXW wc = {0};
+    wc.cbSize = sizeof(WNDCLASSEXW);
+    wc.lpfnWndProc = VideoWindowProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = L"VLCVideoWindow";
+    wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    
+    if (RegisterClassExW(&wc)) {
+        registered = true;
+        return true;
+    }
+    
+    DWORD error = GetLastError();
+    if (error == ERROR_CLASS_ALREADY_EXISTS) {
+        registered = true;
+        return true;
+    }
+    
+    return false;
+}
+
+// VLC 事件回调：当视频开始播放时调整缩放
+static void OnMediaPlayerPlaying(const libvlc_event_t* event, void* userData) {
+    WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(userData);
+    if (!wrapper || !wrapper->mediaPlayer) return;
+    
+    LogMessage("视频开始播放事件触发，正在设置视频适配模式...");
+    
+    // 等待视频输出准备好
+    Sleep(100);
+    
+    // 设置视频自动适配窗口，保持宽高比（letterbox/pillarbox效果）
+    // scale = 0 表示自动适配
+    libvlc_video_set_scale(wrapper->mediaPlayer, 0);
+    
+    // 不设置 aspect ratio，让 VLC 使用视频原始宽高比
+    // 这样 VLC 会自动在窗口中居中显示视频，未覆盖区域显示黑色背景
+    
+    // 获取视频实际尺寸
+    unsigned int videoWidth = 0, videoHeight = 0;
+    if (libvlc_video_get_size(wrapper->mediaPlayer, 0, &videoWidth, &videoHeight) == 0) {
+        LogMessage("视频原始尺寸: %ux%u", videoWidth, videoHeight);
+        LogMessage("窗口尺寸: %dx%d", wrapper->videoWidth, wrapper->videoHeight);
+        
+        // 计算宽高比
+        float videoAspect = (float)videoWidth / (float)videoHeight;
+        float windowAspect = (float)wrapper->videoWidth / (float)wrapper->videoHeight;
+        
+        if (videoAspect > windowAspect) {
+            LogMessage("视频更宽，将产生上下黑边（letterbox）");
+        } else {
+            LogMessage("视频更高，将产生左右黑边（pillarbox）");
+        }
+    }
+    
+    LogMessage("视频适配模式已设置完成");
+}
 
 // 判断字符串是否为网络流地址
 static bool IsNetworkStream(const std::string& source) {
@@ -353,10 +444,19 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    // 创建视频子窗口（使用 WS_EX_TOPMOST 确保在 WebView 之上）
+    // 注册自定义视频窗口类（带黑色背景）
+    if (!RegisterVideoWindowClass()) {
+        LogMessage("错误：无法注册视频窗口类");
+        libvlc_media_player_release(wrapper->mediaPlayer);
+        libvlc_release(wrapper->vlcInstance);
+        delete wrapper;
+        return NULL;
+    }
+    
+    // 创建视频子窗口（使用自定义窗口类，确保黑色背景）
     wrapper->videoWindow = CreateWindowExW(
         WS_EX_NOACTIVATE,  // 不激活窗口
-        L"STATIC",
+        L"VLCVideoWindow",  // 使用自定义窗口类
         L"Video Window",
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
         static_cast<int>(x), static_cast<int>(y),
@@ -375,17 +475,9 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    LogMessage("视频窗口创建成功: HWND=0x%p, 位置=(%d,%d), 大小=%dx%d", 
+    LogMessage("视频窗口创建成功（带黑色背景）: HWND=0x%p, 位置=(%d,%d), 大小=%dx%d", 
                wrapper->videoWindow, static_cast<int>(x), static_cast<int>(y),
                static_cast<int>(width), static_cast<int>(height));
-    
-    // 设置黑色背景（避免闪烁）
-    HBRUSH blackBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
-    SetClassLongPtr(wrapper->videoWindow, GCLP_HBRBACKGROUND, (LONG_PTR)blackBrush);
-    
-    // 强制重绘以应用黑色背景
-    InvalidateRect(wrapper->videoWindow, NULL, TRUE);
-    UpdateWindow(wrapper->videoWindow);
     
     // 将视频窗口置于 Z-order 顶层（在 Chromium WebView 之上）
     SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
@@ -396,6 +488,13 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     // 设置 VLC 使用该窗口进行渲染
     libvlc_media_player_set_hwnd(wrapper->mediaPlayer, wrapper->videoWindow);
     LogMessage("已设置 VLC 渲染窗口句柄");
+    
+    // 注册事件监听器
+    wrapper->eventManager = libvlc_media_player_event_manager(wrapper->mediaPlayer);
+    if (wrapper->eventManager) {
+        libvlc_event_attach(wrapper->eventManager, libvlc_MediaPlayerPlaying, OnMediaPlayerPlaying, wrapper);
+        LogMessage("已注册视频播放事件监听器");
+    }
     
     // 创建覆盖层窗口（必须在视频窗口之后创建，确保在上层）
     wrapper->overlayWindow = CreateOverlayWindow(
@@ -490,21 +589,21 @@ void wv_player_play(void* playerHandle, const char* source) {
     LogMessage("媒体对象创建成功");
     
     // 设置媒体并播放
+    // 释放旧的媒体对象（如果存在）
+    if (wrapper->currentMedia) {
+        libvlc_media_release(wrapper->currentMedia);
+    }
+    
+    // 保存当前媒体对象的引用
+    wrapper->currentMedia = media;
+    
     libvlc_media_player_set_media(wrapper->mediaPlayer, media);
-    libvlc_media_release(media);  // 播放器会持有引用
     
     int playResult = libvlc_media_player_play(wrapper->mediaPlayer);
     
     if (playResult == 0) {
         LogMessage("开始播放: %s", sourcePath.c_str());
-        
-        // 保持视频原始宽高比，自动适应窗口
-        // 不调用 libvlc_video_set_aspect_ratio，让 VLC 使用视频原始宽高比
-        // 设置缩放为 0，VLC 会自动计算最佳缩放比例以适配窗口
-        // 这样会产生 letterbox（上下黑边）或 pillarbox（左右黑边）效果
-        libvlc_video_set_scale(wrapper->mediaPlayer, 0);
-        
-        LogMessage("已设置视频保持原始宽高比并自动适配窗口: %dx%d", wrapper->videoWidth, wrapper->videoHeight);
+        LogMessage("等待视频准备就绪，将在播放事件中设置缩放模式...");
         
         // 获取并记录视频窗口的实际位置和大小
         RECT rect;
@@ -595,6 +694,18 @@ void wv_player_release(void* playerHandle) {
     
     // 停止播放
     libvlc_media_player_stop(wrapper->mediaPlayer);
+    
+    // 分离事件监听器
+    if (wrapper->eventManager) {
+        libvlc_event_detach(wrapper->eventManager, libvlc_MediaPlayerPlaying, OnMediaPlayerPlaying, wrapper);
+        LogMessage("已分离事件监听器");
+    }
+    
+    // 释放当前媒体对象
+    if (wrapper->currentMedia) {
+        libvlc_media_release(wrapper->currentMedia);
+        wrapper->currentMedia = NULL;
+    }
     
     // 释放媒体播放器
     if (wrapper->mediaPlayer) {
