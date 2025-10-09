@@ -261,6 +261,7 @@ struct WVPlayerWrapper {
     int videoWidth;        // 视频窗口宽度
     int videoHeight;       // 视频窗口高度
     libvlc_event_manager_t* eventManager;  // 事件管理器
+    bool videoScaleConfigured;  // 标记是否已设置视频缩放（避免重复触发）
 };
 
 // ==================== 工具函数 ====================
@@ -322,6 +323,11 @@ static void OnMediaPlayerVout(const libvlc_event_t* event, void* userData) {
     WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(userData);
     if (!wrapper || !wrapper->mediaPlayer) return;
     
+    // 如果已经配置过，直接返回（避免重复触发）
+    if (wrapper->videoScaleConfigured) {
+        return;
+    }
+    
     LogMessage("视频输出已准备好，正在设置视频适配模式...");
     
     // 获取视频实际尺寸（确保视频已经可以渲染）
@@ -348,13 +354,9 @@ static void OnMediaPlayerVout(const libvlc_event_t* event, void* userData) {
                 LogMessage("视频更高，将产生左右黑边（pillarbox）");
             }
             
+            // 标记已配置，避免重复触发
+            wrapper->videoScaleConfigured = true;
             LogMessage("视频适配模式已设置完成");
-            
-            // 移除事件监听器，避免重复触发（类似macOS版本）
-            if (wrapper->eventManager) {
-                libvlc_event_detach(wrapper->eventManager, libvlc_MediaPlayerVout, OnMediaPlayerVout, wrapper);
-                LogMessage("已移除视频输出事件监听器");
-            }
         }
     } else {
         LogMessage("警告：无法获取视频尺寸，视频可能还未准备好");
@@ -609,6 +611,9 @@ void wv_player_play(void* playerHandle, const char* source) {
     
     // 保存当前媒体对象的引用
     wrapper->currentMedia = media;
+    
+    // 重置视频缩放配置标志（新视频需要重新配置）
+    wrapper->videoScaleConfigured = false;
     
     libvlc_media_player_set_media(wrapper->mediaPlayer, media);
     
