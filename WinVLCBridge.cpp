@@ -1,7 +1,7 @@
 //
 //  WinVLCBridge.cpp
 //  WinVLCBridge
-//
+//  视频能正常播放，就是窗口位置不正确。
 //  Created by Channing Kuo on 2025/10/7.
 //
 
