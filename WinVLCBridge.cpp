@@ -576,6 +576,11 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     // 将 wrapper 指针保存到容器窗口
     SetWindowLongPtr(wrapper->containerWindow, GWLP_USERDATA, (LONG_PTR)wrapper);
     
+    // 强制重绘容器窗口以显示黑色背景
+    InvalidateRect(wrapper->containerWindow, NULL, TRUE);
+    UpdateWindow(wrapper->containerWindow);
+    LogMessage("容器窗口已强制重绘背景");
+    
     // 第二步：在容器窗口内创建视频窗口（初始时填满容器，稍后会调整）
     wrapper->videoWindow = CreateWindowExW(
         WS_EX_NOACTIVATE,
@@ -638,7 +643,10 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         SetWindowPos(wrapper->overlayWindow, HWND_TOP, 0, 0, 0, 0, 
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         
+        LogMessage("覆盖层窗口创建成功: HWND=0x%p (透明，黑色区域会穿透)", wrapper->overlayWindow);
         LogMessage("覆盖层窗口 Z-order 已设置为顶层");
+    } else {
+        LogMessage("警告：覆盖层窗口创建失败");
     }
     
     LogMessage("播放器创建成功 - 窗口大小: %.0fx%.0f, 位置: (%.0f, %.0f)", width, height, x, y);
