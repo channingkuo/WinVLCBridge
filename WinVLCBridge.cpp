@@ -708,22 +708,25 @@ bool wv_player_get_stats(void* playerHandle, char* buffer, int bufferSize) {
     }
     
     // 获取 VLC 播放统计信息
+    libvlc_media_t* media = libvlc_media_player_get_media(wrapper->mediaPlayer);
+    if (!media) {
+        return false;
+    }
+    
     libvlc_media_stats_t stats;
     memset(&stats, 0, sizeof(stats));
     
-    if (libvlc_media_player_get_stats(wrapper->mediaPlayer, &stats)) {
+    if (libvlc_media_get_stats(media, &stats)) {
         // 格式化统计信息
         snprintf(buffer, bufferSize,
                  "Bitrate: %.2f kb/s\n"
                  "Read: %.2f MB\n"
                  "Demux: %.2f MB\n"
-                 "Lost frames: %d\n"
-                 "Display FPS: %.1f",
+                 "Lost frames: %d",
                  stats.f_input_bitrate,
                  stats.i_read_bytes / (1024.0f * 1024.0f),
                  stats.i_demux_read_bytes / (1024.0f * 1024.0f),
-                 stats.i_lost_pictures,
-                 stats.f_displayed_pictures > 0 ? stats.f_displayed_pictures : 0.0f
+                 stats.i_lost_pictures
         );
         
         return true;
