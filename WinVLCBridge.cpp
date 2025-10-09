@@ -305,9 +305,9 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    // 创建视频子窗口
+    // 创建视频子窗口（使用 WS_EX_TOPMOST 确保在 WebView 之上）
     wrapper->videoWindow = CreateWindowExW(
-        0,
+        WS_EX_NOACTIVATE,  // 不激活窗口
         L"STATIC",
         L"Video Window",
         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
@@ -338,6 +338,12 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     // 强制重绘以应用黑色背景
     InvalidateRect(wrapper->videoWindow, NULL, TRUE);
     UpdateWindow(wrapper->videoWindow);
+    
+    // 将视频窗口置于 Z-order 顶层（在 Chromium WebView 之上）
+    SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    
+    LogMessage("视频窗口已设置为 Z-order 顶层");
     
     // 设置 VLC 使用该窗口进行渲染
     libvlc_media_player_set_hwnd(wrapper->mediaPlayer, wrapper->videoWindow);
@@ -444,13 +450,20 @@ void wv_player_play(void* playerHandle, const char* source) {
     if (playResult == 0) {
         LogMessage("开始播放: %s", sourcePath.c_str());
         
-        // 确保视频窗口可见并在前台
+        // 确保视频窗口可见并在顶层（覆盖 WebView）
         ShowWindow(wrapper->videoWindow, SW_SHOW);
         UpdateWindow(wrapper->videoWindow);
-        SetWindowPos(wrapper->videoWindow, HWND_BOTTOM, 0, 0, 0, 0, 
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        BringWindowToTop(wrapper->videoWindow);
+        SetWindowPos(wrapper->videoWindow, HWND_TOP, 0, 0, 0, 0, 
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         
-        LogMessage("视频窗口已更新并设置 Z-order");
+        // 确保覆盖层窗口在视频窗口之上
+        if (wrapper->overlayWindow) {
+            SetWindowPos(wrapper->overlayWindow, HWND_TOP, 0, 0, 0, 0, 
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+        
+        LogMessage("视频窗口已更新并设置 Z-order 为顶层");
     } else {
         LogMessage("错误：播放失败，返回码: %d", playResult);
         const char* vlcError = libvlc_errmsg();
