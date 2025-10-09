@@ -43,10 +43,18 @@ static void LogMessage(const char* format, ...) {
     fprintf(stderr, "[WinVLCBridge] %s\n", buffer);
     fflush(stderr);  // 强制刷新输出缓冲区
     
-    // 同时输出到 Windows 调试器
-    OutputDebugStringA("[WinVLCBridge] ");
-    OutputDebugStringA(buffer);
-    OutputDebugStringA("\n");
+    // 转换为宽字符并输出到 Windows 调试器（避免 DebugView 中文乱码）
+    wchar_t wideBuffer[1024];
+    wchar_t wideMessage[1100];
+    
+    // 将 UTF-8 字符串转换为宽字符（假设输入是 UTF-8 编码）
+    MultiByteToWideChar(CP_UTF8, 0, buffer, -1, wideBuffer, 1024);
+    
+    // 添加前缀
+    swprintf(wideMessage, 1100, L"[WinVLCBridge] %s\n", wideBuffer);
+    
+    // 输出到 Windows 调试器
+    OutputDebugStringW(wideMessage);
 }
 
 // ==================== 矩形覆盖层窗口 ====================
@@ -349,13 +357,16 @@ void wv_player_play(void* playerHandle, const char* source) {
     }
     
     WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
-    std::string sourcePath = NormalizePath(source);
+    std::string sourcePath = source;
+    
+    LogMessage("原始路径: %s", source);
     
     // 创建媒体对象
     libvlc_media_t* media = NULL;
     
     if (IsNetworkStream(sourcePath)) {
         // 网络流
+        LogMessage("检测到网络流，使用 location 方式");
         media = libvlc_media_new_location(wrapper->vlcInstance, sourcePath.c_str());
         
         // 设置网络流选项
@@ -365,26 +376,58 @@ void wv_player_play(void* playerHandle, const char* source) {
             libvlc_media_add_option(media, ":clock-jitter=0");
             libvlc_media_add_option(media, ":clock-synchro=0");
         }
-        
-        LogMessage("创建网络流媒体: %s", sourcePath.c_str());
     } else {
-        // 本地文件
-        media = libvlc_media_new_path(wrapper->vlcInstance, sourcePath.c_str());
-        LogMessage("创建本地文件媒体: %s", sourcePath.c_str());
+        // 本地文件 - 检查文件是否存在
+        DWORD fileAttr = GetFileAttributesA(sourcePath.c_str());
+        if (fileAttr == INVALID_FILE_ATTRIBUTES) {
+            LogMessage("错误：文件不存在: %s", sourcePath.c_str());
+            return;
+        }
+        
+        LogMessage("文件存在，准备创建媒体对象");
+        
+        // 将路径转换为 file:/// URI 格式（VLC 更可靠地支持这种格式）
+        std::string normalizedPath = NormalizePath(sourcePath);
+        std::string fileUri = "file:///" + normalizedPath;
+        
+        LogMessage("使用 URI: %s", fileUri.c_str());
+        
+        // 使用 location 方式创建本地文件媒体（比 new_path 更可靠）
+        media = libvlc_media_new_location(wrapper->vlcInstance, fileUri.c_str());
+        
+        if (!media) {
+            LogMessage("location 方式失败，尝试 path 方式");
+            // 如果失败，尝试使用 new_path（使用原始路径）
+            media = libvlc_media_new_path(wrapper->vlcInstance, sourcePath.c_str());
+        }
     }
     
     if (!media) {
         LogMessage("错误：无法创建媒体对象");
+        const char* vlcError = libvlc_errmsg();
+        if (vlcError) {
+            LogMessage("VLC 错误信息: %s", vlcError);
+        }
         return;
     }
+    
+    LogMessage("媒体对象创建成功");
     
     // 设置媒体并播放
     libvlc_media_player_set_media(wrapper->mediaPlayer, media);
     libvlc_media_release(media);  // 播放器会持有引用
     
-    libvlc_media_player_play(wrapper->mediaPlayer);
+    int playResult = libvlc_media_player_play(wrapper->mediaPlayer);
     
-    LogMessage("开始播放: %s", sourcePath.c_str());
+    if (playResult == 0) {
+        LogMessage("开始播放: %s", sourcePath.c_str());
+    } else {
+        LogMessage("错误：播放失败，返回码: %d", playResult);
+        const char* vlcError = libvlc_errmsg();
+        if (vlcError) {
+            LogMessage("VLC 错误信息: %s", vlcError);
+        }
+    }
 }
 
 void wv_player_pause(void* playerHandle) {
