@@ -100,15 +100,6 @@ WINVLCBRIDGE_API bool wv_player_get_stats(void* playerHandle, char* buffer, int 
  */
 WINVLCBRIDGE_API void wv_player_update_stats_display(void* playerHandle, const char* statsText, bool show);
 
-/**
- * 设置视频窗口背景色
- * @param playerHandle 播放器句柄
- * @param red 红色分量 (0-255)
- * @param green 绿色分量 (0-255)
- * @param blue 蓝色分量 (0-255)
- */
-WINVLCBRIDGE_API void wv_player_set_background_color(void* playerHandle, int red, int green, int blue);
-
 #ifdef __cplusplus
 }
 #endif
