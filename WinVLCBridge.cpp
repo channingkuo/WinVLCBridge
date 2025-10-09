@@ -39,7 +39,11 @@ static void LogMessage(const char* format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
     
-    std::cout << "[WinVLCBridge] " << buffer << std::endl;
+    // 使用 stderr 输出，因为它是无缓冲的，能立即显示在命令行中
+    fprintf(stderr, "[WinVLCBridge] %s\n", buffer);
+    fflush(stderr);  // 强制刷新输出缓冲区
+    
+    // 同时输出到 Windows 调试器
     OutputDebugStringA("[WinVLCBridge] ");
     OutputDebugStringA(buffer);
     OutputDebugStringA("\n");
