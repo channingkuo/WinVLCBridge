@@ -190,16 +190,36 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     
     HWND parentWindow = static_cast<HWND>(hwnd_ptr);
     
+    // 获取父窗口的 DPI 缩放比例
+    HDC hdc = GetDC(parentWindow);
+    int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
+    int dpiY = GetDeviceCaps(hdc, LOGPIXELSY);
+    ReleaseDC(parentWindow, hdc);
+    
+    float scaleX = dpiX / 96.0f;  // 96 DPI 是 100% 缩放
+    float scaleY = dpiY / 96.0f;
+    
+    LogMessage("检测到 DPI: %d x %d, 缩放比例: %.2f x %.2f", dpiX, dpiY, scaleX, scaleY);
+    LogMessage("原始尺寸: %.0f x %.0f, 位置: (%.0f, %.0f)", width, height, x, y);
+    
+    // 应用 DPI 缩放到尺寸和位置
+    int scaledWidth = static_cast<int>(width * scaleX);
+    int scaledHeight = static_cast<int>(height * scaleY);
+    int scaledX = static_cast<int>(x * scaleX);
+    int scaledY = static_cast<int>(y * scaleY);
+    
+    LogMessage("缩放后尺寸: %d x %d, 位置: (%d, %d)", scaledWidth, scaledHeight, scaledX, scaledY);
+    
     // 创建播放器包装对象
     WVPlayerWrapper* wrapper = new WVPlayerWrapper();
     memset(wrapper, 0, sizeof(WVPlayerWrapper));
     
-    // 保存窗口尺寸和父窗口信息
+    // 保存窗口尺寸和父窗口信息（使用缩放后的值）
     wrapper->parentWindow = parentWindow;
-    wrapper->videoWidth = static_cast<int>(width);
-    wrapper->videoHeight = static_cast<int>(height);
-    wrapper->offsetX = static_cast<int>(x);
-    wrapper->offsetY = static_cast<int>(y);
+    wrapper->videoWidth = scaledWidth;
+    wrapper->videoHeight = scaledHeight;
+    wrapper->offsetX = scaledX;
+    wrapper->offsetY = scaledY;
     
     // 获取 DLL 所在目录，用于定位 VLC 插件
     char dllPath[MAX_PATH];
@@ -265,21 +285,21 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     RECT parentRect;
     GetWindowRect(parentWindow, &parentRect);
     
-    // 计算子窗口在屏幕上的绝对位置
-    int screenX = parentRect.left + static_cast<int>(x);
-    int screenY = parentRect.top + static_cast<int>(y);
+    // 计算子窗口在屏幕上的绝对位置（使用缩放后的偏移）
+    int screenX = parentRect.left + scaledX;
+    int screenY = parentRect.top + scaledY;
     
     LogMessage("父窗口位置: (%d,%d), 子窗口屏幕坐标: (%d,%d)", 
                parentRect.left, parentRect.top, screenX, screenY);
     
-    // 创建独立的顶层窗口（popup），而不是子窗口
+    // 创建独立的顶层窗口（popup），使用缩放后的尺寸
     wrapper->videoWindow = CreateWindowExW(
         WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,  // 不激活窗口，工具窗口样式
         L"VLCVideoWindow",  // 使用自定义窗口类
         L"Video Window",
         WS_POPUP | WS_VISIBLE,  // 使用 popup 窗口
         screenX, screenY,  // 使用屏幕坐标
-        static_cast<int>(width), static_cast<int>(height),
+        scaledWidth, scaledHeight,  // 使用缩放后的尺寸
         NULL,  // 不设置父窗口（独立窗口）
         NULL,
         GetModuleHandle(NULL),
@@ -295,8 +315,7 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     }
     
     LogMessage("视频窗口创建成功（带黑色背景）: HWND=0x%p, 位置=(%d,%d), 大小=%dx%d", 
-               wrapper->videoWindow, static_cast<int>(x), static_cast<int>(y),
-               static_cast<int>(width), static_cast<int>(height));
+               wrapper->videoWindow, scaledX, scaledY, scaledWidth, scaledHeight);
     
     // 将视频窗口置于 Z-order 顶层（在 Chromium WebView 之上）
     SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, 0, 0, 0, 0, 
@@ -315,7 +334,8 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         LogMessage("已注册视频播放事件监听器");
     }
     
-    LogMessage("播放器创建成功 - 窗口大小: %.0fx%.0f, 位置: (%.0f, %.0f)", width, height, x, y);
+    LogMessage("播放器创建成功 - 原始尺寸: %.0fx%.0f, 实际窗口大小: %dx%d (DPI 缩放: %.2f)", 
+               width, height, scaledWidth, scaledHeight, scaleX);
     
     return wrapper;
 }
