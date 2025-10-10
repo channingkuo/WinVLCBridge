@@ -62,6 +62,7 @@ struct WVPlayerWrapper {
     int videoHeight;               // 视频窗口高度
     int offsetX;                   // 相对于父窗口的X偏移
     int offsetY;                   // 相对于父窗口的Y偏移
+    float dpiScaleY;               // DPI 垂直缩放比例（用于计算菜单栏高度）
     libvlc_event_manager_t* eventManager;  // 事件管理器
 };
 
@@ -220,6 +221,7 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     wrapper->videoHeight = scaledHeight;
     wrapper->offsetX = scaledX;
     wrapper->offsetY = scaledY;
+    wrapper->dpiScaleY = scaleY;  // 保存 DPI 缩放比例
     
     // 获取 DLL 所在目录，用于定位 VLC 插件
     char dllPath[MAX_PATH];
@@ -281,9 +283,15 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
+    // Electron 菜单栏高度（需要根据 DPI 缩放）
+    // 标准高度约 20-24 像素，应用 DPI 缩放
+    int menuBarHeight = static_cast<int>(24 * scaleY);
+    
+    LogMessage("Electron 菜单栏高度 (DPI 缩放后): %d 像素", menuBarHeight);
+    
     // 将客户区坐标转换为屏幕坐标
-    // 这样可以正确处理标题栏、菜单栏和边框的高度
-    POINT clientPoint = { scaledX, scaledY };
+    // 先加上菜单栏高度，因为传入的坐标是相对于 HTML 内容区域的
+    POINT clientPoint = { scaledX, scaledY + menuBarHeight };
     ClientToScreen(parentWindow, &clientPoint);
     
     int screenX = clientPoint.x;
@@ -295,11 +303,10 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
     RECT clientRect;
     GetClientRect(parentWindow, &clientRect);
     
-    int titleBarHeight = clientPoint.y - parentRect.top - scaledY;
+    int titleBarHeight = clientPoint.y - parentRect.top - scaledY - menuBarHeight;
     
-    LogMessage("父窗口位置: (%d,%d), 客户区偏移: 左=%d, 顶=%d", 
-               parentRect.left, parentRect.top, 
-               clientPoint.x - parentRect.left - scaledX, titleBarHeight);
+    LogMessage("父窗口位置: (%d,%d), 标题栏高度=%d, 菜单栏高度=%d", 
+               parentRect.left, parentRect.top, titleBarHeight, menuBarHeight);
     LogMessage("视频窗口屏幕坐标: (%d,%d)", screenX, screenY);
     
     // 创建独立的顶层窗口（popup），使用缩放后的尺寸
@@ -514,9 +521,12 @@ void wv_update_window_position(void* playerHandle) {
     WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
     if (!wrapper->videoWindow || !wrapper->parentWindow) return;
 
+    // 计算 Electron 菜单栏高度（应用 DPI 缩放）
+    int menuBarHeight = static_cast<int>(24 * wrapper->dpiScaleY);
+    
     // 将客户区坐标转换为屏幕坐标
-    // 使用 ClientToScreen 可以正确处理标题栏、菜单栏和边框
-    POINT clientPoint = { wrapper->offsetX, wrapper->offsetY };
+    // 先加上菜单栏高度，因为传入的坐标是相对于 HTML 内容区域的
+    POINT clientPoint = { wrapper->offsetX, wrapper->offsetY + menuBarHeight };
     ClientToScreen(wrapper->parentWindow, &clientPoint);
 
     // 移动子窗口到新位置
