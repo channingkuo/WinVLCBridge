@@ -281,16 +281,26 @@ void* wv_create_player_for_view(void* hwnd_ptr, float x, float y, float width, f
         return NULL;
     }
     
-    // 获取父窗口的屏幕坐标
+    // 将客户区坐标转换为屏幕坐标
+    // 这样可以正确处理标题栏、菜单栏和边框的高度
+    POINT clientPoint = { scaledX, scaledY };
+    ClientToScreen(parentWindow, &clientPoint);
+    
+    int screenX = clientPoint.x;
+    int screenY = clientPoint.y;
+    
+    // 获取父窗口信息用于日志
     RECT parentRect;
     GetWindowRect(parentWindow, &parentRect);
+    RECT clientRect;
+    GetClientRect(parentWindow, &clientRect);
     
-    // 计算子窗口在屏幕上的绝对位置（使用缩放后的偏移）
-    int screenX = parentRect.left + scaledX;
-    int screenY = parentRect.top + scaledY;
+    int titleBarHeight = clientPoint.y - parentRect.top - scaledY;
     
-    LogMessage("父窗口位置: (%d,%d), 子窗口屏幕坐标: (%d,%d)", 
-               parentRect.left, parentRect.top, screenX, screenY);
+    LogMessage("父窗口位置: (%d,%d), 客户区偏移: 左=%d, 顶=%d", 
+               parentRect.left, parentRect.top, 
+               clientPoint.x - parentRect.left - scaledX, titleBarHeight);
+    LogMessage("视频窗口屏幕坐标: (%d,%d)", screenX, screenY);
     
     // 创建独立的顶层窗口（popup），使用缩放后的尺寸
     wrapper->videoWindow = CreateWindowExW(
@@ -504,16 +514,13 @@ void wv_update_window_position(void* playerHandle) {
     WVPlayerWrapper* wrapper = static_cast<WVPlayerWrapper*>(playerHandle);
     if (!wrapper->videoWindow || !wrapper->parentWindow) return;
 
-    // 获取父窗口的当前屏幕坐标
-    RECT parentRect;
-    GetWindowRect(wrapper->parentWindow, &parentRect);
-
-    // 计算子窗口的新屏幕坐标
-    int newX = parentRect.left + wrapper->offsetX;
-    int newY = parentRect.top + wrapper->offsetY;
+    // 将客户区坐标转换为屏幕坐标
+    // 使用 ClientToScreen 可以正确处理标题栏、菜单栏和边框
+    POINT clientPoint = { wrapper->offsetX, wrapper->offsetY };
+    ClientToScreen(wrapper->parentWindow, &clientPoint);
 
     // 移动子窗口到新位置
-    SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, newX, newY, 0, 0,
+    SetWindowPos(wrapper->videoWindow, HWND_TOPMOST, clientPoint.x, clientPoint.y, 0, 0,
                  SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
